@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="doc.batch.controller.service.mapper.BatchScheduleMapper">
+
+    <select id="selectActiveSchedules" resultType="doc.batch.controller.service.BatchScheduleVo">
+        SELECT JOB_NAME
+        , CRON_EXPR
+        , USE_YN
+        , DESCRIPTION
+        FROM BATCH_SCHEDULE
+        WHERE USE_YN = 'Y'
+        ORDER BY JOB_NAME
+    </select>
+
+    <select id="selectSchedule" parameterType="string" resultType="doc.batch.controller.service.BatchScheduleVo">
+        SELECT JOB_NAME
+        , CRON_EXPR
+        , USE_YN
+        , DESCRIPTION
+        FROM BATCH_SCHEDULE
+        WHERE JOB_NAME = #{jobName}
+    </select>
+
+    <update id="updateCronExpr" parameterType="doc.batch.controller.service.BatchScheduleVo">
+        UPDATE BATCH_SCHEDULE
+        SET CRON_EXPR     = #{cronExpr}
+        , LAST_MODIFIED = SYSTIMESTAMP
+        , MODIFIED_BY   = #{modifiedBy, jdbcType=VARCHAR}
+        WHERE JOB_NAME = #{jobName}
+    </update>
+
+    <update id="updateUseYn" parameterType="doc.batch.controller.service.BatchScheduleVo">
+        UPDATE BATCH_SCHEDULE
+        SET USE_YN        = #{useYn}
+        , LAST_MODIFIED = SYSTIMESTAMP
+        WHERE JOB_NAME = #{jobName}
+    </update>
+
+    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo">
+        INSERT INTO BATCH_RUN_HIST (
+        JOB_NAME, STEP_NAME, TRIGGERED_BY, TRIGGER_TYPE, STATUS
+        ) VALUES (
+        #{jobName}, #{stepName, jdbcType=VARCHAR}, #{triggeredBy}, #{triggerType}, 'RUNNING'
+        )
+    </insert>
+
+    <update id="updateRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo">
+        UPDATE BATCH_RUN_HIST
+        SET END_TIME    = SYSTIMESTAMP
+        , STATUS      = #{status}
+        , ERROR_MSG   = #{errorMsg, jdbcType=VARCHAR}
+        , EXECUTION_ID = #{executionId, jdbcType=NUMERIC}
+        WHERE RUN_ID = #{runId}
+    </update>
+
+    <select id="selectRunHistList" parameterType="string" resultType="doc.batch.controller.service.BatchRunHistVo">
+        SELECT RUN_ID
+        , JOB_NAME
+        , STEP_NAME
+        , TRIGGERED_BY
+        , TRIGGER_TYPE
+        , START_TIME
+        , END_TIME
+        , STATUS
+        , ERROR_MSG
+        , EXECUTION_ID
+        FROM BATCH_RUN_HIST
+        WHERE JOB_NAME = #{jobName}
+        ORDER BY RUN_ID DESC
+        FETCH FIRST 100 ROWS ONLY
+    </select>
+
+</mapper>

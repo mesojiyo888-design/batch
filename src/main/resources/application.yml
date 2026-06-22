@@ -1,0 +1,54 @@
+server:
+  port: 8081                          # egov-docs(8080)랑 포트 분리
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  # ── DataSource ───────────────────────────────────────────────────
+  datasource:
+    driver-class-name: oracle.jdbc.OracleDriver
+    url: jdbc:oracle:thin:@172.16.151.121:1521/ORCL
+    username: c##user0001
+    password: aD123456789
+
+    # 메모리 모드: h2 로컬DB설정 운영이나 개발환경에서 주석처리(DB구성안된곳에서 테스트용) START
+    #driver-class-name: org.h2.Driver
+    #url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=0;MODE=Oracle; #DB_CLOSE_DELAY =  0(애플리케이션 종료 시 DB 삭제), -1(데이터유지 애플리케이션 종료 시에도 DB 유지), MODE=Oracle: Oracle 호환 모드
+    # 파일 모드: 특정 경로에 파일을 생성 (데이터 유지)
+    # url: jdbc:h2:file:~/data/testdb;MODE=Oracle;
+    #username: sa
+    #password:
+    #h2:
+    #  console:
+    #    enabled: true # 웹 브라우저에서 DB 내용을 확인할 수 있는 콘솔 활성화
+    #    path: /h2-console
+    # 메모리 모드 END
+
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 3
+      connection-test-query: SELECT 1 FROM DUAL
+
+  # ── Spring Batch ─────────────────────────────────────────────────
+  batch:
+    job:
+      enabled: false                  # 시작 시 자동 실행 방지
+    initialize-schema: never          # DB schema 생성옵션 - always : 자동생성, never : 생성안함, embedded : 내장DB만 자동생성
+    # 메타데이터 트랜잭션 격리 수준을 낮춥니다 (READ_COMMITTED가 오라클 기본값)
+    repository:
+      isolation-level-for-create: ISOLATION_READ_COMMITTED
+
+  # ── MyBatis ──────────────────────────────────────────────────────
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true  # snake_case → camelCase 자동 변환
+    jdbc-type-for-null: VARCHAR # null 값이 들어오면 무조건 VARCHAR로 간주하라는 설정
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# ── 배치 인스턴스 식별 ────────────────────────────────────────────
+batch:
+  instance-id: ${HOSTNAME:batch-01}   # 멀티 인스턴스 시 서버마다 다르게
