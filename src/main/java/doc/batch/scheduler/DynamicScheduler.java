@@ -15,6 +15,8 @@ import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 
 /**
  * DB 기반 동적 스케줄러
@@ -23,7 +25,6 @@ import java.util.Map;
  * - ShedLock으로 멀티 인스턴스 중복 실행 방지
  * - 수동 reloadSchedules() 호출로 즉시 반영 가능
  */
-
 @Component
 public class DynamicScheduler implements SchedulingConfigurer {
 
@@ -31,17 +32,19 @@ public class DynamicScheduler implements SchedulingConfigurer {
 
     private final BatchScheduleMapper scheduleMapper;
     private final BatchJobLauncher    batchJobLauncher;
-    private final TaskScheduler       taskScheduler;  // 주입받기
+    private final TaskScheduler       taskScheduler;
+
+    // 현재 등록된 스케줄 태스크 (취소용)
+    private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
     private final Map<String, Runnable> jobMap = new HashMap<>();
-    private ScheduledTaskRegistrar registrar;
 
     public DynamicScheduler(BatchScheduleMapper scheduleMapper,
                             BatchJobLauncher batchJobLauncher,
-                            TaskScheduler taskScheduler) {  // 생성자 주입 추가
-        this.scheduleMapper  = scheduleMapper;
+                            TaskScheduler taskScheduler) {
+        this.scheduleMapper   = scheduleMapper;
         this.batchJobLauncher = batchJobLauncher;
-        this.taskScheduler   = taskScheduler;
+        this.taskScheduler    = taskScheduler;
 
         jobMap.put("documentSyncJob",     batchJobLauncher::documentSyncJob);
         jobMap.put("documentApprovalJob", batchJobLauncher::documentApprovalJob);
@@ -50,15 +53,10 @@ public class DynamicScheduler implements SchedulingConfigurer {
 
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
-        this.registrar = registrar;
-        registrar.setScheduler(taskScheduler);  // 주입받은 걸 사용
+        // 최초 기동 시 등록
         reloadSchedules();
     }
 
-    // ---------------------------------------------------------------
-    // 1분마다 DB 폴링 → 크론 변경 감지 시 재등록
-    // ShedLock으로 멀티 인스턴스 중 한 대만 실행
-    // ---------------------------------------------------------------
     @Scheduled(fixedDelay = 60_000)
     @SchedulerLock(name = "reloadBatchSchedules", lockAtMostFor = "55s")
     public void reloadSchedules() {
@@ -66,8 +64,16 @@ public class DynamicScheduler implements SchedulingConfigurer {
             List<BatchScheduleVo> schedules = scheduleMapper.selectActiveSchedules();
             log.info("[DynamicScheduler] 스케줄 재등록 - {}건", schedules.size());
 
-            registrar.destroy();
+            // ── 기존 태스크 전부 취소 ──────────────────────────
+            scheduledTasks.forEach((jobName, future) -> {
+                if (future != null && !future.isCancelled()) {
+                    future.cancel(false);  // 실행 중인 건 끝날 때까지 대기
+                    log.info("[DynamicScheduler] 취소: {}", jobName);
+                }
+            });
+            scheduledTasks.clear();
 
+            // ── 새 크론으로 재등록 ─────────────────────────────
             for (BatchScheduleVo schedule : schedules) {
                 String   jobName  = schedule.getJobName();
                 Runnable runnable = jobMap.get(jobName);
@@ -77,11 +83,14 @@ public class DynamicScheduler implements SchedulingConfigurer {
                     continue;
                 }
 
-                registrar.addTriggerTask(runnable, new CronTrigger(schedule.getCronExpr()));
+                ScheduledFuture<?> future = taskScheduler.schedule(
+                        runnable,
+                        new CronTrigger(schedule.getCronExpr())
+                );
+
+                scheduledTasks.put(jobName, future);
                 log.info("[DynamicScheduler] 등록: {} → {}", jobName, schedule.getCronExpr());
             }
-
-            registrar.afterPropertiesSet();
 
         } catch (Exception e) {
             log.error("[DynamicScheduler] 스케줄 재등록 실패", e);
