@@ -37,7 +37,7 @@
         WHERE JOB_NAME = #{jobName}
     </update>
 
-    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo">
+    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo" useGeneratedKeys="true" keyProperty="runId">
         INSERT INTO BATCH_RUN_HIST (
         JOB_NAME, STEP_NAME, TRIGGERED_BY, TRIGGER_TYPE, STATUS
         ) VALUES (
