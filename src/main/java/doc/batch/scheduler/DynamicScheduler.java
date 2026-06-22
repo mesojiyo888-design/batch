@@ -25,20 +25,19 @@ import java.util.concurrent.ScheduledFuture;
  * - ShedLock으로 멀티 인스턴스 중복 실행 방지
  * - 수동 reloadSchedules() 호출로 즉시 반영 가능
  */
+
 @Component
 public class DynamicScheduler implements SchedulingConfigurer {
 
     private static final Logger log = LoggerFactory.getLogger(DynamicScheduler.class);
 
-    private final BatchScheduleMapper scheduleMapper;
-    private final BatchJobLauncher    batchJobLauncher;
-    private final TaskScheduler       taskScheduler;
+    private final BatchScheduleMapper            scheduleMapper;
+    private final BatchJobLauncher               batchJobLauncher;
+    private final TaskScheduler                  taskScheduler;
 
-    // 현재 등록된 스케줄 태스크 (취소용)
-    private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
-    private final Map<String, String> registeredCrons = new ConcurrentHashMap<>();
-
-    private final Map<String, Runnable> jobMap = new HashMap<>();
+    private final Map<String, Runnable>           jobMap          = new HashMap<>();
+    private final Map<String, ScheduledFuture<?>> scheduledTasks  = new ConcurrentHashMap<>();
+    private final Map<String, String>             registeredCrons = new ConcurrentHashMap<>(); // 변경 감지용
 
     public DynamicScheduler(BatchScheduleMapper scheduleMapper,
                             BatchJobLauncher batchJobLauncher,
@@ -47,17 +46,19 @@ public class DynamicScheduler implements SchedulingConfigurer {
         this.batchJobLauncher = batchJobLauncher;
         this.taskScheduler    = taskScheduler;
 
+        // Job 추가 시 여기에 한 줄 추가
         jobMap.put("documentSyncJob",     batchJobLauncher::documentSyncJob);
         jobMap.put("documentApprovalJob", batchJobLauncher::documentApprovalJob);
         jobMap.put("documentReportJob",   batchJobLauncher::documentReportJob);
     }
 
+    // 앱 시작 시 최초 등록
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
-        // 최초 기동 시 등록
         reloadSchedules();
     }
 
+    // 1분마다 DB 폴링 → 크론이 바뀐 Job만 재등록
     @Scheduled(fixedDelay = 60_000)
     @SchedulerLock(name = "reloadBatchSchedules", lockAtMostFor = "55s")
     public void reloadSchedules() {
@@ -65,30 +66,29 @@ public class DynamicScheduler implements SchedulingConfigurer {
             List<BatchScheduleVo> schedules = scheduleMapper.selectActiveSchedules();
 
             for (BatchScheduleVo schedule : schedules) {
-                String jobName  = schedule.getJobName();
-                String cronExpr = schedule.getCronExpr();
+                String   jobName  = schedule.getJobName();
+                String   cronExpr = schedule.getCronExpr();
                 Runnable runnable = jobMap.get(jobName);
 
                 if (runnable == null) {
-                    log.warn("[DynamicScheduler] jobMap에 없는 Job: {}", jobName);
+                    log.warn("[DynamicScheduler] jobMap 미등록 Job: {}", jobName);
                     continue;
                 }
 
-                // 크론이 바뀐 경우만 재등록
-                String currentCron = registeredCrons.get(jobName);
-                if (cronExpr.equals(currentCron) && scheduledTasks.containsKey(jobName)) {
+                // 크론 동일 + 태스크 살아있으면 SKIP → 타이밍 문제 없음
+                String         currentCron = registeredCrons.get(jobName);
+                ScheduledFuture<?> currentTask = scheduledTasks.get(jobName);
+                if (cronExpr.equals(currentCron) && currentTask != null && !currentTask.isCancelled()) {
                     log.debug("[DynamicScheduler] 변경 없음 SKIP: {} → {}", jobName, cronExpr);
                     continue;
                 }
 
-                // 기존 태스크 취소
-                ScheduledFuture<?> old = scheduledTasks.get(jobName);
-                if (old != null && !old.isCancelled()) {
-                    old.cancel(false);
-                    log.info("[DynamicScheduler] 취소: {}", jobName);
+                // 크론 변경됐거나 태스크 없으면 → 기존 취소 후 재등록
+                if (currentTask != null && !currentTask.isCancelled()) {
+                    currentTask.cancel(false);
+                    log.info("[DynamicScheduler] 취소: {} ({})", jobName, currentCron);
                 }
 
-                // 새 크론으로 등록
                 ScheduledFuture<?> future = taskScheduler.schedule(runnable, new CronTrigger(cronExpr));
                 scheduledTasks.put(jobName, future);
                 registeredCrons.put(jobName, cronExpr);
