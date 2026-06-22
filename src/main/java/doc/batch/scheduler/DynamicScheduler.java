@@ -36,6 +36,7 @@ public class DynamicScheduler implements SchedulingConfigurer {
 
     // 현재 등록된 스케줄 태스크 (취소용)
     private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
+    private final Map<String, String> registeredCrons = new ConcurrentHashMap<>();
 
     private final Map<String, Runnable> jobMap = new HashMap<>();
 
@@ -62,20 +63,10 @@ public class DynamicScheduler implements SchedulingConfigurer {
     public void reloadSchedules() {
         try {
             List<BatchScheduleVo> schedules = scheduleMapper.selectActiveSchedules();
-            log.info("[DynamicScheduler] 스케줄 재등록 - {}건", schedules.size());
 
-            // ── 기존 태스크 전부 취소 ──────────────────────────
-            scheduledTasks.forEach((jobName, future) -> {
-                if (future != null && !future.isCancelled()) {
-                    future.cancel(false);  // 실행 중인 건 끝날 때까지 대기
-                    log.info("[DynamicScheduler] 취소: {}", jobName);
-                }
-            });
-            scheduledTasks.clear();
-
-            // ── 새 크론으로 재등록 ─────────────────────────────
             for (BatchScheduleVo schedule : schedules) {
-                String   jobName  = schedule.getJobName();
+                String jobName  = schedule.getJobName();
+                String cronExpr = schedule.getCronExpr();
                 Runnable runnable = jobMap.get(jobName);
 
                 if (runnable == null) {
@@ -83,13 +74,25 @@ public class DynamicScheduler implements SchedulingConfigurer {
                     continue;
                 }
 
-                ScheduledFuture<?> future = taskScheduler.schedule(
-                        runnable,
-                        new CronTrigger(schedule.getCronExpr())
-                );
+                // 크론이 바뀐 경우만 재등록
+                String currentCron = registeredCrons.get(jobName);
+                if (cronExpr.equals(currentCron) && scheduledTasks.containsKey(jobName)) {
+                    log.debug("[DynamicScheduler] 변경 없음 SKIP: {} → {}", jobName, cronExpr);
+                    continue;
+                }
 
+                // 기존 태스크 취소
+                ScheduledFuture<?> old = scheduledTasks.get(jobName);
+                if (old != null && !old.isCancelled()) {
+                    old.cancel(false);
+                    log.info("[DynamicScheduler] 취소: {}", jobName);
+                }
+
+                // 새 크론으로 등록
+                ScheduledFuture<?> future = taskScheduler.schedule(runnable, new CronTrigger(cronExpr));
                 scheduledTasks.put(jobName, future);
-                log.info("[DynamicScheduler] 등록: {} → {}", jobName, schedule.getCronExpr());
+                registeredCrons.put(jobName, cronExpr);
+                log.info("[DynamicScheduler] 등록: {} → {}", jobName, cronExpr);
             }
 
         } catch (Exception e) {
