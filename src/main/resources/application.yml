@@ -52,3 +52,9 @@ mybatis:
 # ── 배치 인스턴스 식별 ────────────────────────────────────────────
 batch:
   instance-id: ${HOSTNAME:batch-01}   # 멀티 인스턴스 시 서버마다 다르게
+
+
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: true

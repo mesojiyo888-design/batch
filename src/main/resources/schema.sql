@@ -25,17 +25,20 @@ CREATE TABLE SHEDLOCK (
 -- =============================================
 -- 3. 배치 수동 실행 이력 테이블
 -- =============================================
+CREATE SEQUENCE BATCH_RUN_HIST_SEQ START WITH 1 INCREMENT BY 1;
+
 CREATE TABLE BATCH_RUN_HIST (
-    RUN_ID          NUMBER          GENERATED ALWAYS AS IDENTITY,
+    RUN_ID          NUMBER          NOT NULL,  -- IDENTITY 제거
     JOB_NAME        VARCHAR2(100)   NOT NULL,
-    STEP_NAME       VARCHAR2(100),              -- NULL이면 전체 실행
-    TRIGGERED_BY    VARCHAR2(100)   NOT NULL,   -- 'scheduler' or userId
-    TRIGGER_TYPE    VARCHAR2(20)    NOT NULL,   -- 'AUTO' | 'MANUAL'
+    STEP_NAME       VARCHAR2(100),
+    TRIGGERED_BY    VARCHAR2(100)   NOT NULL,
+    TRIGGER_TYPE    VARCHAR2(20)    NOT NULL,
     START_TIME      TIMESTAMP       DEFAULT SYSTIMESTAMP,
     END_TIME        TIMESTAMP,
-    STATUS          VARCHAR2(20),               -- COMPLETED | FAILED | RUNNING
+    STATUS          VARCHAR2(20),
+    INSTANCE_ID VARCHAR2(100)
     ERROR_MSG       VARCHAR2(2000),
-    EXECUTION_ID    NUMBER,                     -- Spring Batch JobExecutionId
+    EXECUTION_ID    NUMBER,
     CONSTRAINT PK_BATCH_RUN_HIST PRIMARY KEY (RUN_ID)
 );
 

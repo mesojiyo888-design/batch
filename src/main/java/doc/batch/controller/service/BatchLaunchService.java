@@ -9,6 +9,7 @@ import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.JobParameters;
 import org.springframework.batch.core.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +26,9 @@ public class BatchLaunchService {
     private final JobLauncher         jobLauncher;
     private final ApplicationContext  context;
     private final BatchScheduleMapper scheduleMapper;
+
+    @Value("${batch.instance-id}")
+    private String instanceId;
 
     public BatchLaunchService(JobLauncher jobLauncher,
                               ApplicationContext context,
@@ -49,6 +53,7 @@ public class BatchLaunchService {
         hist.setStepName(targetStep);
         hist.setTriggeredBy(triggeredBy);
         hist.setTriggerType(triggerType);
+        hist.setInstanceId(instanceId);
         scheduleMapper.insertRunHist(hist);
 
         JobExecution execution = null;

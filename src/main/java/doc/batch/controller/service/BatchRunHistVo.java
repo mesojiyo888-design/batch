@@ -16,6 +16,7 @@ public class BatchRunHistVo {
     private String status;
     private String errorMsg;
     private Long   executionId;
+    private String instanceId;
 
     // getters / setters
     public Long   getRunId()                    { return runId; }
@@ -47,4 +48,7 @@ public class BatchRunHistVo {
 
     public Long   getExecutionId()                      { return executionId; }
     public void   setExecutionId(Long executionId)      { this.executionId = executionId; }
+
+    public String getInstanceId()                      { return instanceId; }
+    public void   setInstanceId(String instanceId)      { this.instanceId = instanceId; }
 }

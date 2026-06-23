@@ -29,6 +29,9 @@ public interface BatchScheduleMapper {
     /** 실행 이력 종료 업데이트 */
     int updateRunHist(BatchRunHistVo vo);
 
+    /** 실행 이력 상태 변경 (RUNNING → FAILED) */
+    int updateAbandonedRunHist(String instanceId);
+
     /** 실행 이력 목록 */
     List<BatchRunHistVo> selectRunHistList(String jobName);
 }

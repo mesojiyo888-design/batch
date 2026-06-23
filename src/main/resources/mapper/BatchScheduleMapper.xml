@@ -37,11 +37,24 @@
         WHERE JOB_NAME = #{jobName}
     </update>
 
-    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo" useGeneratedKeys="true" keyProperty="runId">
+    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo">
+        <selectKey keyProperty="runId" resultType="long" order="BEFORE">
+            SELECT BATCH_RUN_HIST_SEQ.NEXTVAL FROM DUAL
+        </selectKey>
         INSERT INTO BATCH_RUN_HIST (
-        JOB_NAME, STEP_NAME, TRIGGERED_BY, TRIGGER_TYPE, STATUS
+        RUN_ID
+        , JOB_NAME
+        , STEP_NAME
+        , TRIGGERED_BY
+        , TRIGGER_TYPE
+        , STATUS
         ) VALUES (
-        #{jobName}, #{stepName, jdbcType=VARCHAR}, #{triggeredBy}, #{triggerType}, 'RUNNING'
+        #{runId}
+        , #{jobName}
+        , #{stepName,    jdbcType=VARCHAR}
+        , #{triggeredBy}
+        , #{triggerType}
+        , 'RUNNING'
         )
     </insert>
 
@@ -70,5 +83,14 @@
         ORDER BY RUN_ID DESC
         FETCH FIRST 100 ROWS ONLY
     </select>
+
+    <update id="updateAbandonedRunHist" parameterType="string">
+        UPDATE BATCH_RUN_HIST
+        SET STATUS    = 'FAILED'
+        , END_TIME  = SYSTIMESTAMP
+        , ERROR_MSG = '서버 재시작으로 인한 강제 종료'
+        WHERE STATUS = 'RUNNING'
+        AND INSTANCE_ID = #{instanceId}
+    </update>
 
 </mapper>

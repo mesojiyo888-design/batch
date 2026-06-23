@@ -18,10 +18,10 @@
         </encoder>
     </appender>
 
-    <logger name="doc.batch" level="INFO"/>
-    <logger name="org.springframework.batch" level="INFO"/>
+    <logger name="doc.batch" level="DEBUG"/>
+    <logger name="org.springframework.batch" level="DEBUG"/>
     <logger name="doc.batch.mapper" level="DEBUG"/>
-    <logger name="net.javacrumbs.shedlock" level="INFO"/>
+    <logger name="net.javacrumbs.shedlock" level="DEBUG"/>
 
     <root level="WARN">
         <appender-ref ref="CONSOLE"/>
