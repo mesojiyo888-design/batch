@@ -1,5 +1,5 @@
 server:
-  port: 8081                          # egov-docs(8080)랑 포트 분리
+  port: 8081
   servlet:
     encoding:
       charset: UTF-8
@@ -36,10 +36,10 @@ spring:
   batch:
     job:
       enabled: false                  # 시작 시 자동 실행 방지
-    initialize-schema: never          # DB schema 생성옵션 - always : 자동생성, never : 생성안함, embedded : 내장DB만 자동생성
     # 메타데이터 트랜잭션 격리 수준을 낮춥니다 (READ_COMMITTED가 오라클 기본값)
-    repository:
+    jdbc:
       isolation-level-for-create: ISOLATION_READ_COMMITTED
+      initialize-schema: never          # DB schema 생성옵션 - always : 자동생성, never : 생성안함, embedded : 내장DB만 자동생성
 
   # ── MyBatis ──────────────────────────────────────────────────────
 mybatis:
