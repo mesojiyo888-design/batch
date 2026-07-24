@@ -12,7 +12,6 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,7 +34,6 @@ public class DynamicScheduler implements SchedulingConfigurer {
     private final BatchJobLauncher               batchJobLauncher;
     private final TaskScheduler                  taskScheduler;
 
-    private final Map<String, Runnable>           jobMap          = new HashMap<>();
     private final Map<String, ScheduledFuture<?>> scheduledTasks  = new ConcurrentHashMap<>();
     private final Map<String, String>             registeredCrons = new ConcurrentHashMap<>(); // 변경 감지용
 
@@ -45,11 +43,8 @@ public class DynamicScheduler implements SchedulingConfigurer {
         this.scheduleMapper   = scheduleMapper;
         this.batchJobLauncher = batchJobLauncher;
         this.taskScheduler    = taskScheduler;
-
-        // Job 추가 시 여기에 한 줄 추가
-        jobMap.put("documentSyncJob",     batchJobLauncher::documentSyncJob);
-        jobMap.put("documentApprovalJob", batchJobLauncher::documentApprovalJob);
-        jobMap.put("documentReportJob",   batchJobLauncher::documentReportJob);
+        // NATIVE/SQL/PROCEDURE 관계없이 모든 Job이 runScheduledJob(jobName) 공통 경로를 타므로
+        // 여기에 Job별로 코드를 추가할 필요가 없다.
     }
 
     // 앱 시작 시 최초 등록
@@ -63,17 +58,16 @@ public class DynamicScheduler implements SchedulingConfigurer {
     @SchedulerLock(name = "reloadBatchSchedules", lockAtMostFor = "55s")
     public void reloadSchedules() {
         try {
-            List<BatchScheduleVo> schedules = scheduleMapper.selectActiveSchedules();
+            List<BatchScheduleVo> schedules = scheduleMapper.selectActiveSchedulesForScheduler();
 
             for (BatchScheduleVo schedule : schedules) {
                 String   jobName  = schedule.getJobName();
                 String   cronExpr = schedule.getCronExpr();
-                Runnable runnable = jobMap.get(jobName);
 
-                if (runnable == null) {
-                    log.warn("[DynamicScheduler] jobMap 미등록 Job: {}", jobName);
-                    continue;
-                }
+                // NATIVE/SQL/PROCEDURE 관계없이 동일한 공통 트리거 사용.
+                // 실제 Job 해석(자바 Bean 조회 vs genericJob 위임)은 BatchLaunchService가 담당하므로
+                // 신규 Job이 추가돼도 여기 코드는 손댈 필요가 없다.
+                Runnable runnable = () -> batchJobLauncher.runScheduledJob(jobName);
 
                 // 크론 동일 + 태스크 살아있으면 SKIP → 타이밍 문제 없음
                 String         currentCron = registeredCrons.get(jobName);
@@ -93,6 +87,30 @@ public class DynamicScheduler implements SchedulingConfigurer {
                 scheduledTasks.put(jobName, future);
                 registeredCrons.put(jobName, cronExpr);
                 log.info("[DynamicScheduler] 등록: {} → {}", jobName, cronExpr);
+            }
+
+            // DB에서 삭제되었거나 비활성화(USE_YN='N')된 Job은 위 루프에서 아예 조회되지 않으므로,
+            // 여기서 별도로 찾아서 취소해야 한다. 안 그러면 삭제/비활성 후에도 서버 재시작 전까지
+            // 메모리에 남아있는 기존 크론 트리거가 계속 실행된다.
+            java.util.Set<String> activeJobNames = new java.util.HashSet<>();
+            for (BatchScheduleVo schedule : schedules) {
+                activeJobNames.add(schedule.getJobName());
+            }
+
+            java.util.Iterator<Map.Entry<String, ScheduledFuture<?>>> it = scheduledTasks.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, ScheduledFuture<?>> entry = it.next();
+                String jobName = entry.getKey();
+                if (activeJobNames.contains(jobName)) {
+                    continue;
+                }
+                ScheduledFuture<?> task = entry.getValue();
+                if (task != null && !task.isCancelled()) {
+                    task.cancel(false);
+                    log.info("[DynamicScheduler] 삭제/비활성화된 Job 스케줄 취소: {}", jobName);
+                }
+                it.remove();
+                registeredCrons.remove(jobName);
             }
 
         } catch (Exception e) {

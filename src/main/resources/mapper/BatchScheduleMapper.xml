@@ -3,41 +3,143 @@
 
 <mapper namespace="doc.batch.controller.service.mapper.BatchScheduleMapper">
 
-    <select id="selectActiveSchedules" resultType="doc.batch.controller.service.BatchScheduleVo">
+    <resultMap id="scheduleResultMap" type="doc.batch.controller.service.BatchScheduleVo">
+        <id     property="jobName"       column="JOB_NAME" />
+        <result property="cronExpr"      column="CRON_EXPR" />
+        <result property="useYn"         column="USE_YN" />
+        <result property="description"   column="DESCRIPTION" />
+        <result property="taskletType"   column="TASKLET_TYPE" />
+        <result property="taskletConfig" column="TASKLET_CONFIG" />
+        <result property="regDt"         column="REG_DT" />
+        <result property="updDt"         column="UPD_DT" />
+        <result property="modifiedBy"    column="MODIFIED_BY" />
+    </resultMap>
+
+    <!-- 페이징: offset/pageSize는 컨트롤러에서 (pageIndex-1)*pageSize로 계산해 넘겨준다 -->
+    <select id="selectActiveSchedules" parameterType="map" resultMap="scheduleResultMap">
         SELECT JOB_NAME
         , CRON_EXPR
         , USE_YN
         , DESCRIPTION
+        , TASKLET_TYPE
+        , TASKLET_CONFIG
+        , REG_DT
+        , UPD_DT
+        , MODIFIED_BY
+        FROM BATCH_SCHEDULE
+        WHERE USE_YN = 'Y'
+        ORDER BY JOB_NAME
+        OFFSET #{offset} ROWS FETCH NEXT #{pageSize} ROWS ONLY
+    </select>
+
+    <select id="selectActiveSchedulesCount" resultType="int">
+        SELECT COUNT(*) FROM BATCH_SCHEDULE WHERE USE_YN = 'Y'
+    </select>
+
+    <!-- 페이징 미적용 전체 활성 스케줄 조회 - DynamicScheduler가 크론 재등록 시 사용 (그리드 목록용 selectActiveSchedules와는 용도가 다름) -->
+    <select id="selectActiveSchedulesForScheduler" resultMap="scheduleResultMap">
+        SELECT JOB_NAME
+        , CRON_EXPR
+        , USE_YN
+        , DESCRIPTION
+        , TASKLET_TYPE
+        , TASKLET_CONFIG
+        , REG_DT
+        , UPD_DT
+        , MODIFIED_BY
         FROM BATCH_SCHEDULE
         WHERE USE_YN = 'Y'
         ORDER BY JOB_NAME
     </select>
 
-    <select id="selectSchedule" parameterType="string" resultType="doc.batch.controller.service.BatchScheduleVo">
+    <select id="selectAllSchedules" parameterType="map" resultMap="scheduleResultMap">
         SELECT JOB_NAME
         , CRON_EXPR
         , USE_YN
         , DESCRIPTION
+        , TASKLET_TYPE
+        , TASKLET_CONFIG
+        , REG_DT
+        , UPD_DT
+        , MODIFIED_BY
+        FROM BATCH_SCHEDULE
+        ORDER BY JOB_NAME
+        OFFSET #{offset} ROWS FETCH NEXT #{pageSize} ROWS ONLY
+    </select>
+
+    <select id="selectAllSchedulesCount" resultType="int">
+        SELECT COUNT(*) FROM BATCH_SCHEDULE
+    </select>
+
+    <select id="selectSchedule" parameterType="string" resultMap="scheduleResultMap">
+        SELECT JOB_NAME
+        , CRON_EXPR
+        , USE_YN
+        , DESCRIPTION
+        , TASKLET_TYPE
+        , TASKLET_CONFIG
+        , REG_DT
+        , UPD_DT
+        , MODIFIED_BY
         FROM BATCH_SCHEDULE
         WHERE JOB_NAME = #{jobName}
     </select>
 
-    <update id="updateCronExpr" parameterType="doc.batch.controller.service.BatchScheduleVo">
+    <!-- 신규 스케줄(동적 Job) 등록 -->
+    <insert id="insertSchedule" parameterType="doc.batch.controller.service.BatchScheduleVo">
+        INSERT INTO BATCH_SCHEDULE (
+        JOB_NAME
+        , CRON_EXPR
+        , USE_YN
+        , DESCRIPTION
+        , TASKLET_TYPE
+        , TASKLET_CONFIG
+        , REG_DT
+        , UPD_DT
+        , MODIFIED_BY
+        ) VALUES (
+        #{jobName}
+        , #{cronExpr}
+        , #{useYn}
+        , #{description, jdbcType=VARCHAR}
+        , #{taskletType, jdbcType=VARCHAR}
+        , #{taskletConfig, jdbcType=VARCHAR}
+        , CURRENT_TIMESTAMP
+        , CURRENT_TIMESTAMP
+        , #{modifiedBy, jdbcType=VARCHAR}
+        )
+    </insert>
+
+    <!-- 스케줄 전체 수정: 크론 + 동적 Job 설정(TASKLET_TYPE/CONFIG) + 설명 -->
+    <update id="updateSchedule" parameterType="doc.batch.controller.service.BatchScheduleVo">
         UPDATE BATCH_SCHEDULE
-        SET CRON_EXPR     = #{cronExpr}
-        , LAST_MODIFIED = SYSTIMESTAMP
-        , MODIFIED_BY   = #{modifiedBy, jdbcType=VARCHAR}
+        SET CRON_EXPR      = #{cronExpr}
+        , DESCRIPTION    = #{description, jdbcType=VARCHAR}
+        , TASKLET_TYPE   = #{taskletType, jdbcType=VARCHAR}
+        , TASKLET_CONFIG = #{taskletConfig, jdbcType=VARCHAR}
+        , UPD_DT         = CURRENT_TIMESTAMP
+        , MODIFIED_BY    = #{modifiedBy, jdbcType=VARCHAR}
         WHERE JOB_NAME = #{jobName}
     </update>
 
     <update id="updateUseYn" parameterType="doc.batch.controller.service.BatchScheduleVo">
         UPDATE BATCH_SCHEDULE
         SET USE_YN        = #{useYn}
-        , LAST_MODIFIED = SYSTIMESTAMP
+        , UPD_DT        = CURRENT_TIMESTAMP
         WHERE JOB_NAME = #{jobName}
     </update>
 
-    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo">
+    <delete id="deleteSchedule" parameterType="string">
+        DELETE FROM BATCH_SCHEDULE
+        WHERE JOB_NAME = #{jobName}
+    </delete>
+
+    <!--
+        RUN_ID 채번 방식은 Oracle/PostgreSQL이 서로 달라 databaseId로 분기한다.
+        (databaseIdProvider는 BatchConfig 참고: Oracle -> "oracle", PostgreSQL -> "postgresql")
+        운영(Oracle) 동작은 기존과 동일하게 BATCH_RUN_HIST_SEQ.NEXTVAL을 그대로 사용한다.
+    -->
+    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo" databaseId="oracle">
         <selectKey keyProperty="runId" resultType="long" order="BEFORE">
             SELECT BATCH_RUN_HIST_SEQ.NEXTVAL FROM DUAL
         </selectKey>
@@ -58,16 +160,59 @@
         )
     </insert>
 
+    <!-- PostgreSQL: 시퀀스 nextval() 함수 사용 (로컬 테스트 전용) -->
+    <insert id="insertRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo" databaseId="postgresql">
+        <selectKey keyProperty="runId" resultType="long" order="BEFORE">
+            SELECT NEXTVAL('batch_run_hist_seq')
+        </selectKey>
+        INSERT INTO BATCH_RUN_HIST (
+        RUN_ID
+        , JOB_NAME
+        , STEP_NAME
+        , TRIGGERED_BY
+        , TRIGGER_TYPE
+        , STATUS
+        ) VALUES (
+        #{runId}
+        , #{jobName}
+        , #{stepName,    jdbcType=VARCHAR}
+        , #{triggeredBy}
+        , #{triggerType}
+        , 'RUNNING'
+        )
+    </insert>
+
     <update id="updateRunHist" parameterType="doc.batch.controller.service.BatchRunHistVo">
         UPDATE BATCH_RUN_HIST
-        SET END_TIME    = SYSTIMESTAMP
+        SET END_TIME    = CURRENT_TIMESTAMP
         , STATUS      = #{status}
         , ERROR_MSG   = #{errorMsg, jdbcType=VARCHAR}
         , EXECUTION_ID = #{executionId, jdbcType=NUMERIC}
         WHERE RUN_ID = #{runId}
     </update>
 
-    <select id="selectRunHistList" parameterType="string" resultType="doc.batch.controller.service.BatchRunHistVo">
+    <!-- 이력 검색 공통 조건 (jobName/기간/상태 모두 선택, jobName은 대소문자 무시 부분일치(LIKE) 검색)
+         특정 Job 이력 조회(getHistory)는 jobName에 정확한 값을 넘기므로 결과적으로 단건 매칭되고,
+         전체 이력 조회(getAllHistory)는 jobName이 비어있으면 조건 자체가 빠진다. -->
+    <sql id="runHistCondition">
+        <where>
+            <if test="jobName != null and jobName != ''">
+                AND UPPER(JOB_NAME) LIKE UPPER('%' || #{jobName} || '%')
+            </if>
+            <if test="startDt != null">
+                AND START_TIME &gt;= TO_TIMESTAMP(#{startDt}, 'YYYY-MM-DD HH24:MI:SS')
+            </if>
+            <if test="endDt != null">
+                AND START_TIME &lt;= TO_TIMESTAMP(#{endDt}, 'YYYY-MM-DD HH24:MI:SS')
+            </if>
+            <if test="status != null and status != ''">
+                AND STATUS = #{status}
+            </if>
+        </where>
+    </sql>
+
+    <!-- Job 실행 이력 검색 (jobName/기간/상태, 페이징) -->
+    <select id="selectRunHistList" parameterType="map" resultType="doc.batch.controller.service.BatchRunHistVo">
         SELECT RUN_ID
         , JOB_NAME
         , STEP_NAME
@@ -79,15 +224,21 @@
         , ERROR_MSG
         , EXECUTION_ID
         FROM BATCH_RUN_HIST
-        WHERE JOB_NAME = #{jobName}
+        <include refid="runHistCondition" />
         ORDER BY RUN_ID DESC
-        FETCH FIRST 100 ROWS ONLY
+        OFFSET #{offset} ROWS FETCH NEXT #{pageSize} ROWS ONLY
+    </select>
+
+    <select id="selectRunHistListCount" parameterType="map" resultType="int">
+        SELECT COUNT(*)
+        FROM BATCH_RUN_HIST
+        <include refid="runHistCondition" />
     </select>
 
     <update id="updateAbandonedRunHist" parameterType="string">
         UPDATE BATCH_RUN_HIST
         SET STATUS    = 'FAILED'
-        , END_TIME  = SYSTIMESTAMP
+        , END_TIME  = CURRENT_TIMESTAMP
         , ERROR_MSG = '서버 재시작으로 인한 강제 종료'
         WHERE STATUS = 'RUNNING'
         AND INSTANCE_ID = #{instanceId}

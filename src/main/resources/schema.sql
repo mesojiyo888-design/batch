@@ -6,7 +6,10 @@ CREATE TABLE BATCH_SCHEDULE (
     CRON_EXPR       VARCHAR2(100)   NOT NULL,
     USE_YN          CHAR(1)         DEFAULT 'Y' NOT NULL,
     DESCRIPTION     VARCHAR2(500),
-    LAST_MODIFIED   TIMESTAMP       DEFAULT SYSTIMESTAMP,
+    TASKLET_TYPE    VARCHAR2(20),
+    TASKLET_CONFIG  VARCHAR2(4000),
+    REG_DT          TIMESTAMP       DEFAULT SYSTIMESTAMP,
+    UPD_DT          TIMESTAMP       DEFAULT SYSTIMESTAMP,
     MODIFIED_BY     VARCHAR2(100),
     CONSTRAINT PK_BATCH_SCHEDULE PRIMARY KEY (JOB_NAME)
 );
@@ -16,7 +19,10 @@ COMMENT ON COLUMN BATCH_SCHEDULE.JOB_NAME      IS '잡 이름 (Spring Batch JobB
 COMMENT ON COLUMN BATCH_SCHEDULE.CRON_EXPR     IS 'Cron 표현식 (예: 0 0 2 * * ? → 매일 02:00 실행)';
 COMMENT ON COLUMN BATCH_SCHEDULE.USE_YN        IS '스케줄 활성화 여부 (Y: 활성, N: 비활성 - 재배포 없이 일시 중지 가능)';
 COMMENT ON COLUMN BATCH_SCHEDULE.DESCRIPTION   IS '스케줄 설명 (목적, 담당자, 주의사항 등 자유 기재)';
-COMMENT ON COLUMN BATCH_SCHEDULE.LAST_MODIFIED IS '스케줄 마지막 수정 일시 (자동 갱신)';
+COMMENT ON COLUMN BATCH_SCHEDULE.TASKLET_TYPE   IS '동적 Job 실행 방식 (NATIVE: 하드코딩된 Java Job 사용, SQL: JdbcTemplate으로 TASKLET_CONFIG SQL 실행, PROCEDURE: 저장 프로시저 호출, API: 미구현 - 실행 시 예외 발생)';
+COMMENT ON COLUMN BATCH_SCHEDULE.TASKLET_CONFIG IS '동적 Job 실행 설정값 (TASKLET_TYPE=SQL이면 실행할 SQL문, PROCEDURE면 프로시저 호출 스펙, API면 호출 URL) - 관리자 전용, SQL 인젝션 위험 있으므로 인증/권한 제어 필요';
+COMMENT ON COLUMN BATCH_SCHEDULE.REG_DT         IS '스케줄 등록 일시';
+COMMENT ON COLUMN BATCH_SCHEDULE.UPD_DT         IS '스케줄 마지막 수정 일시';
 COMMENT ON COLUMN BATCH_SCHEDULE.MODIFIED_BY   IS '스케줄 마지막 수정자 (사용자 ID)';
 
 
@@ -73,14 +79,14 @@ COMMENT ON COLUMN BATCH_RUN_HIST.EXECUTION_ID  IS 'Spring Batch BATCH_JOB_EXECUT
 -- =============================================
 -- 기초 데이터
 -- =============================================
-INSERT INTO BATCH_SCHEDULE (JOB_NAME, CRON_EXPR, USE_YN, DESCRIPTION)
-VALUES ('documentSyncJob',     '0 30 15 * * *', 'Y', '문서 동기화 (매일 02:00)');
+INSERT INTO BATCH_SCHEDULE (JOB_NAME, CRON_EXPR, USE_YN, DESCRIPTION, TASKLET_TYPE)
+VALUES ('documentSyncJob',     '0 30 15 * * *', 'Y', '문서 동기화 (매일 02:00)', 'NATIVE');
 
-INSERT INTO BATCH_SCHEDULE (JOB_NAME, CRON_EXPR, USE_YN, DESCRIPTION)
-VALUES ('documentApprovalJob', '0 30 1 * * *', 'Y', '결재 마감 처리 (매일 01:30)');
+INSERT INTO BATCH_SCHEDULE (JOB_NAME, CRON_EXPR, USE_YN, DESCRIPTION, TASKLET_TYPE)
+VALUES ('documentApprovalJob', '0 30 1 * * *', 'Y', '결재 마감 처리 (매일 01:30)', 'NATIVE');
 
-INSERT INTO BATCH_SCHEDULE (JOB_NAME, CRON_EXPR, USE_YN, DESCRIPTION)
-VALUES ('documentReportJob',   '0 0 6 * * MON', 'Y', '보고서 생성 (매주 월요일 06:00)');
+INSERT INTO BATCH_SCHEDULE (JOB_NAME, CRON_EXPR, USE_YN, DESCRIPTION, TASKLET_TYPE)
+VALUES ('documentReportJob',   '0 0 6 * * MON', 'Y', '보고서 생성 (매주 월요일 06:00)', 'NATIVE');
 
 COMMIT;
 
