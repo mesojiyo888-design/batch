@@ -17,6 +17,10 @@ import org.springframework.stereotype.Service;
  * 배치 Job 실행 공통 서비스
  * - 스케줄러, Controller 양쪽에서 동일하게 사용
  * - 실행 이력(BATCH_RUN_HIST) 자동 기록
+ *
+ * 변경점: Job 파라미터에 instanceId 를 "식별 제외(false)" 로 추가
+ *   → 시작 시 정리(BatchApplication)에서 "내 서버가 실행하던 execution" 만 골라낼 수 있다.
+ *   → identifying=false 라서 Job 인스턴스 구분(timestamp)에는 영향 없음
  */
 @Service
 public class BatchLaunchService {
@@ -63,7 +67,8 @@ public class BatchLaunchService {
             JobParametersBuilder builder = new JobParametersBuilder()
                     .addLong("timestamp", System.currentTimeMillis())
                     .addString("triggeredBy", triggeredBy)
-                    .addString("triggerType", triggerType);
+                    .addString("triggerType", triggerType)
+                    .addString("instanceId", instanceId, false);   // ★ 소유 서버 꼬리표 (식별 제외)
 
             if (targetStep != null && !targetStep.isEmpty()) {
                 builder.addString(DocumentReportJobConfig.PARAM_TARGET_STEP, targetStep);

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="doc.batch.mapper.biz.SampleDocMapper">
+
+    <!-- 청크 Step 의 Reader(MyBatisCursorItemReader)가 호출 -->
+    <select id="selectWaitDocs" resultType="doc.batch.mapper.biz.SampleDocVo">
+        SELECT DOC_ID
+             , STATUS
+          FROM SAMPLE_DOC
+         WHERE STATUS = 'WAIT'
+         ORDER BY DOC_ID
+    </select>
+
+    <!-- 청크 Step 의 Writer(MyBatisBatchItemWriter)가 호출 -->
+    <update id="updateDone" parameterType="doc.batch.mapper.biz.SampleDocVo">
+        UPDATE SAMPLE_DOC
+           SET STATUS = 'DONE'
+         WHERE DOC_ID = #{docId}
+    </update>
+
+    <select id="countDone" resultType="int">
+        SELECT COUNT(*)
+          FROM SAMPLE_DOC
+         WHERE STATUS = 'DONE'
+    </select>
+
+</mapper>
