@@ -1,6 +1,7 @@
 package doc.batch;
 
 import doc.batch.controller.service.mapper.BatchScheduleMapper;
+import doc.batch.scheduler.DynamicScheduler;
 import net.javacrumbs.shedlock.spring.annotation.EnableSchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,8 @@ import java.util.Date;
  *  - @MapperScan 제거: 다중 DB 라서 MainDataSourceConfig / BizDataSourceConfig 에서 DB별로 스캔
  *  - 시작 시 정리: "내 서버(instanceId)가 실행하던 것만" FAILED 처리 (다른 서버의 정상 실행은 건드리지 않음)
  *  - StepExecution 도 함께 FAILED 처리, execution 단위 try/catch + 로그
+ *  - ★ 정리가 끝난 뒤(finally)에 dynamicScheduler.start() 호출
+ *      → 정리 중에는 어떤 Job 도 스케줄에 등록되지 않으므로 "방금 시작된 Job 을 정리가 FAILED 로 덮어쓰는" 경쟁 상태가 없다
  */
 @SpringBootApplication
 @EnableBatchProcessing
@@ -41,37 +44,47 @@ public class BatchApplication {
     @Value("${batch.instance-id}")
     private String instanceId;
 
-    // 앱 시작 시 미완료 이력 정리
+    // 앱 시작 시 미완료 이력 정리 → 끝나면 스케줄 등록 시작
     @Bean
     public ApplicationRunner cleanupOnStartup(BatchScheduleMapper scheduleMapper,
-                                              JobExplorer jobExplorer,
-                                              JobRepository jobRepository) {
+            JobExplorer jobExplorer,
+            JobRepository jobRepository,
+            DynamicScheduler dynamicScheduler) {
         return args -> {
-            // 1. 내 서버 이력(BATCH_RUN_HIST) FAILED 처리
-            scheduleMapper.updateAbandonedRunHist(instanceId);
-
-            // 2. Spring Batch 메타 테이블 정리 (내 서버가 실행하던 것만)
             try {
-                for (String jobName : jobExplorer.getJobNames()) {
-                    for (JobExecution execution : jobExplorer.findRunningJobExecutions(jobName)) {
-                        // BatchLaunchService 가 Job 파라미터에 넣어 둔 instanceId 로 소유 서버를 판별
-                        // owner == null 은 이 변경 이전에 실행된 건(꼬리표 없음)이므로 정리 대상에 포함
-                        String owner = execution.getJobParameters().getString("instanceId");
-                        if (owner != null && !owner.equals(instanceId)) {
-                            continue;   // 다른 서버가 실행 중인 Job → 건드리지 않음
-                        }
-                        try {
-                            abandon(execution, jobRepository);
-                            log.warn("[startup-cleanup] {} executionId={} → FAILED 처리", jobName, execution.getId());
-                        } catch (Exception e) {
-                            log.error("[startup-cleanup] {} executionId={} 정리 실패", jobName, execution.getId(), e);
-                        }
-                    }
-                }
+                cleanup(scheduleMapper, jobExplorer, jobRepository);
             } catch (Exception e) {
-                log.error("[startup-cleanup] 메타 테이블 정리 실패", e);
+                log.error("[startup-cleanup] 정리 중 오류", e);
+            } finally {
+                // 정리가 성공하든 실패하든 스케줄러는 반드시 시작해야 한다
+                dynamicScheduler.start();
             }
         };
+    }
+
+    private void cleanup(BatchScheduleMapper scheduleMapper,
+            JobExplorer jobExplorer,
+            JobRepository jobRepository) {
+        // 1. 내 서버 이력(BATCH_RUN_HIST) FAILED 처리
+        scheduleMapper.updateAbandonedRunHist(instanceId);
+
+        // 2. Spring Batch 메타 테이블 정리 (내 서버가 실행하던 것만)
+        for (String jobName : jobExplorer.getJobNames()) {
+            for (JobExecution execution : jobExplorer.findRunningJobExecutions(jobName)) {
+                // BatchLaunchService 가 Job 파라미터에 넣어 둔 instanceId 로 소유 서버를 판별
+                // owner == null 은 꼬리표 도입 이전에 실행된 건이므로 정리 대상에 포함
+                String owner = execution.getJobParameters().getString("instanceId");
+                if (owner != null && !owner.equals(instanceId)) {
+                    continue;   // 다른 서버가 실행 중인 Job → 건드리지 않음
+                }
+                try {
+                    abandon(execution, jobRepository);
+                    log.warn("[startup-cleanup] {} executionId={} → FAILED 처리", jobName, execution.getId());
+                } catch (Exception e) {
+                    log.error("[startup-cleanup] {} executionId={} 정리 실패", jobName, execution.getId(), e);
+                }
+            }
+        }
     }
 
     private static void abandon(JobExecution execution, JobRepository jobRepository) {
